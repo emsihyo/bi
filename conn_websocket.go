@@ -1,8 +1,6 @@
 package bi
 
-import (
-	"github.com/gorilla/websocket"
-)
+import "github.com/gorilla/websocket"
 
 const (
 	biWebsocketMessageType = -9527

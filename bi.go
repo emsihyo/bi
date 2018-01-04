@@ -1,12 +1,11 @@
 package bi
 
 import (
-	"sync"
+	"unsafe"
 )
 
 //BI BI
 type BI struct {
-	mut     sync.RWMutex
 	callers map[string]*caller
 }
 
@@ -17,22 +16,18 @@ func NewBI() *BI {
 
 //On On
 func (bi *BI) On(m string, f interface{}) {
-	bi.mut.Lock()
 	bi.callers[m] = newCaller(f)
-	bi.mut.Unlock()
 }
 
 //Handle Handle
-func (bi *BI) Handle(sess Session) {
-	sess.GetSessionImpl().handle(bi, sess)
+func (bi *BI) Handle(sess *Session) {
+	sess.handle(bi)
 }
 
-func (bi *BI) onRequest(from interface{}, m string, p Protocol, a []byte) ([]byte, error) {
-	bi.mut.RLock()
+func (bi *BI) onRequest(sessPtr unsafe.Pointer, m string, p Protocol, a []byte) ([]byte, error) {
 	caller, ok := bi.callers[m]
-	bi.mut.RUnlock()
 	if ok {
-		return caller.call(from, p, a)
+		return caller.call(sessPtr, p, a)
 	}
 	return nil, nil
 }

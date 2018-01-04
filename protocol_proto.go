@@ -1,8 +1,10 @@
 package bi
 
-import "github.com/gogo/protobuf/proto"
+import (
+	"fmt"
 
-import "fmt"
+	"github.com/gogo/protobuf/proto"
+)
 
 //ProtobufProtocol ProtobufProtocol
 type ProtobufProtocol struct {
