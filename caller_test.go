@@ -3,35 +3,34 @@ package bi
 import "testing"
 import "unsafe"
 
-type sessionTest struct {
+type SessionTest struct {
 }
 
-type reqTest struct {
+type EventTest struct {
 	Content string `json:"I,omitempty"`
 }
 
-type respTest struct {
+type AckTest struct {
 	Content string `json:"I,omitempty"`
 }
 
-func Test_caller(t *testing.T) {
-	sess := &sessionTest{}
-	p := &JSONProtocol{}
-	caller := newCaller(func(sess *sessionTest, in *reqTest) *respTest {
-		return &respTest{Content: in.Content}
+func Benchmark_Caller(b *testing.B) {
+	sess := &SessionTest{}
+	protocol := &JSONProtocol{}
+	caller := newCaller(func(sess *SessionTest, event *EventTest) *AckTest {
+		return &AckTest{Content: event.Content}
 	})
-	req := &reqTest{Content: "hello"}
-	reqData, err := p.Marshal(req)
+	event := &EventTest{Content: "hello"}
+	eventBytes, err := protocol.Marshal(event)
 	if nil != err {
-		t.Error(err)
+		b.Error(err)
 	}
-	respData, err := caller.call(unsafe.Pointer(sess), p, reqData)
-	if nil != err {
-		t.Error(err)
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := caller.call(unsafe.Pointer(sess), protocol, eventBytes)
+		if nil != err {
+			b.Error(err)
+		}
 	}
-	resp := &respTest{}
-	err = p.Unmarshal(respData, resp)
-	if nil != err {
-		t.Error(err)
-	}
+	b.StopTimer()
 }
