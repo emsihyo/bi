@@ -1,7 +1,13 @@
 package bi
 
 import (
+	"errors"
 	"unsafe"
+)
+
+var (
+	//ErrUnsupportedMethod ErrUnsupportedMethod
+	ErrUnsupportedMethod = errors.New("bi unsupport method")
 )
 
 //BI BI
@@ -24,10 +30,10 @@ func (bi *BI) Handle(sess *Session) {
 	sess.handle(bi)
 }
 
-func (bi *BI) onRequest(sessPtr unsafe.Pointer, m string, p Protocol, a []byte) ([]byte, error) {
-	caller, ok := bi.callers[m]
+func (bi *BI) onEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, err error) {
+	caller, ok := bi.callers[method]
 	if ok {
-		return caller.call(sessPtr, p, a)
+		return caller.call(sessPtr, protocol, eventBytes)
 	}
-	return nil, nil
+	return nil, ErrUnsupportedMethod
 }

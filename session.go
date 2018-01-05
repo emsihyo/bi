@@ -9,6 +9,13 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
+var (
+	//ErrTimeOut ErrTimeOut
+	ErrTimeOut = errors.New("bi.session timeout")
+	//ErrClosed ErrClosed
+	ErrClosed = errors.New("bi.session closed")
+)
+
 //Session Session
 const (
 	//Connection Connection
@@ -19,24 +26,24 @@ const (
 
 //Session Session
 type Session struct {
-	id                 string
-	protocol           Protocol
-	conn               Conn
-	qa                 *QA
-	isClosed           bool
-	closedErr          error
-	closedMut          sync.Mutex
-	sendMarshalledData chan []byte
-	didReceiveMessage  chan *Message
-	didReceiveError    chan error
-	didDisconnects     []chan error
-	timeout            time.Duration
-	timer              *time.Timer
+	id                    string
+	conn                  Conn
+	protocol              Protocol
+	hand                  *handler
+	isClosed              bool
+	closedErr             error
+	closedMut             sync.Mutex
+	sendMarshalledPackage chan []byte
+	didReceivePackage     chan *Package
+	didReceiveError       chan error
+	didDisconnects        []chan error
+	timeout               time.Duration
+	timer                 *time.Timer
 }
 
 //NewSession NewSession
 func NewSession(conn Conn, protocol Protocol, timeout time.Duration) *Session {
-	return &Session{id: uuid.NewV3(uuid.NewV4(), conn.RemoteAddr()).String(), conn: conn, protocol: protocol, qa: newQA(), didDisconnects: []chan error{}, didReceiveMessage: make(chan *Message, 64), didReceiveError: make(chan error, 1), sendMarshalledData: make(chan []byte, 512), timeout: timeout, timer: time.NewTimer(timeout)}
+	return &Session{id: uuid.NewV3(uuid.NewV4(), conn.RemoteAddr()).String(), conn: conn, protocol: protocol, hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package, 64), didReceiveError: make(chan error, 1), sendMarshalledPackage: make(chan []byte, 512), timeout: timeout, timer: time.NewTimer(timeout)}
 }
 
 //GetID GetID
@@ -54,73 +61,87 @@ func (sess *Session) Close() {
 	sess.conn.Close()
 }
 
-//Emit Emit
-func (sess *Session) Emit(method string, req interface{}) error {
-	var a []byte
-	var err error
-	if nil != req {
-		if a, err = sess.protocol.Marshal(req); nil != err {
-			// log.Println(err)
-			return err
-		}
-	}
-	m := Message{
-		T: Message_Emit,
-		M: method,
-		A: a,
-	}
-	sess.sendMessage(&m)
-	return nil
+//SendMarshalledPackage SendMarshalledPackage
+func (sess *Session) SendMarshalledPackage(marshalledData []byte) {
+	sess.sendMarshalledPackage <- marshalledData
 }
 
-//Request Request
-func (sess *Session) Request(method string, req interface{}, resp interface{}) error {
-	var a []byte
-	var err error
+//Event Event
+func (sess *Session) Event(method string, event interface{}, ack interface{}) (err error) {
+	var eventBytes []byte
 	protocol := sess.protocol
-	if nil != req {
-		if a, err = protocol.Marshal(req); nil != err {
-			// log.Println(err)
-			return err
-		}
+	if eventBytes, err = protocol.Marshal(event); nil != err {
+		// log.Println(err)
+		return err
 	}
-	qa := sess.qa
-	m := Message{
-		T: Message_Request,
-		I: qa.nextID(),
-		M: method,
-		A: a,
+	pkg := &Package{}
+	pkg.T = Type_Event
+	pkg.M = method
+	pkg.A = eventBytes
+	if nil == ack {
+		sess.sendPackage(pkg)
+		return err
 	}
-	q := make(chan []byte, 1)
-	qa.addQ(m.I, q)
-	defer qa.removeQ(m.I)
 	waitForDisconnection := sess.waitForDisconnection()
-	sess.sendMessage(&m)
-	select {
-	case respBytes := <-q:
-		// err = protocol.Unmarshal(respBytes, resp)
-		// if nil != err {
-		// 	log.Println(err)
-		// }
-		return protocol.Unmarshal(respBytes, resp)
-	case err = <-waitForDisconnection:
-		if nil != err {
+	if nil != waitForDisconnection {
+		hand := sess.hand
+		id := hand.nextCallID()
+		pkg.I = id
+		callback := make(chan []byte, 1)
+		hand.addCall(id, callback)
+		defer hand.removeCall(pkg.I)
+		sess.sendPackage(pkg)
+		select {
+		case ackBytes := <-callback:
+			if err = protocol.Unmarshal(ackBytes, ack); nil != err {
+				return err
+			}
+			return nil
+		case err = <-waitForDisconnection:
 			return err
 		}
-		return errors.New("bi: session.impl.closed")
+	} else {
+		return sess.closedErr
 	}
 }
 
-//SendMarshalledData SendMarshalledData
-func (sess *Session) SendMarshalledData(marshalledData []byte) {
-	sess.sendMarshalledData <- marshalledData
+func (sess *Session) sendPackage(pkg *Package) {
+	marshalledData, err := sess.protocol.Marshal(pkg)
+	if nil != err {
+		// log.Println(err)
+		return
+	}
+	sess.sendMarshalledPackage <- marshalledData
 }
 
-func (sess *Session) handle(bi *BI) {
-	sessPtr := unsafe.Pointer(sess)
-	bi.onRequest(sessPtr, Connection, sess.protocol, nil)
-	waitForDisconnection := sess.waitForDisconnection()
-	//receive
+func (sess *Session) waitForDisconnection() chan error {
+	sess.closedMut.Lock()
+	defer sess.closedMut.Unlock()
+	if true == sess.isClosed {
+		return nil
+	}
+	didDisconnect := make(chan error, 1)
+	sess.didDisconnects = append(sess.didDisconnects, didDisconnect)
+	return didDisconnect
+}
+
+func (sess *Session) sendLoop() {
+	go func() {
+		waitForDisconnection := sess.waitForDisconnection()
+		if nil != waitForDisconnection {
+			for {
+				select {
+				case <-waitForDisconnection:
+					return
+				case packageBytes := <-sess.sendMarshalledPackage:
+					sess.conn.Write(packageBytes)
+				}
+			}
+		}
+	}()
+}
+
+func (sess *Session) receiveLoop() {
 	go func() {
 		var err error
 		var data []byte
@@ -130,60 +151,60 @@ func (sess *Session) handle(bi *BI) {
 				break
 			}
 			if nil == data {
-				sess.didReceiveMessage <- nil
+				sess.didReceivePackage <- nil
 				continue
 			}
-			m := Message{}
-			err = sess.protocol.Unmarshal(data, &m)
-			if nil != err {
-				// log.Println(err)
+			pkg := Package{}
+			if err = sess.protocol.Unmarshal(data, &pkg); nil != err {
 				sess.didReceiveError <- err
 				break
 			} else {
-				sess.didReceiveMessage <- &m
+				sess.didReceivePackage <- &pkg
 			}
 		}
 	}()
-
-	go func() {
-		//send loop
-	loop1:
-		for {
-			select {
-			case <-waitForDisconnection:
-				break loop1
-			case data := <-sess.sendMarshalledData:
-				sess.conn.Write(data)
-			}
-		}
-	}()
-
-	//receive loop
+}
+func (sess *Session) handle(bi *BI) {
+	sess.sendLoop()
+	sess.receiveLoop()
 	var err error
-	var didTimeout bool
+	sessPtr := unsafe.Pointer(sess)
+	protocol := sess.protocol
+	bi.onEvent(sessPtr, Connection, protocol, nil)
 loop2:
 	for {
 		sess.timer.Reset(sess.timeout)
 		select {
 		case <-sess.timer.C:
-			//timeout
-			didTimeout = true
+			err = ErrTimeOut
 			sess.conn.Close()
-		case m := <-sess.didReceiveMessage:
-			if true != didTimeout && nil != m {
-				switch m.T {
-				case Message_Emit:
-					bi.onRequest(sessPtr, m.M, sess.protocol, m.A)
-				case Message_Request:
-					resp, _ := bi.onRequest(sessPtr, m.M, sess.protocol, m.A)
-					m.T = Message_Response
-					m.A = resp
-					m.M = ""
-					sess.sendMessage(m)
-				case Message_Response:
-					q := sess.qa.getQ(m.I)
-					if nil != q {
-						q <- m.A
+		case pkg := <-sess.didReceivePackage:
+			if nil != err && nil != pkg {
+				switch pkg.T {
+				case Type_Event:
+					ackBytes := []byte{}
+					ackBytes, err = bi.onEvent(sessPtr, pkg.M, protocol, pkg.A)
+					if nil == err {
+						pkg.T = Type_Ack
+						pkg.A = ackBytes
+						sess.sendPackage(pkg)
+					} else {
+						pkg.T = Type_Error
+						pkg.A = []byte(err.Error())
+						sess.sendPackage(pkg)
+						sess.conn.Close()
+					}
+				case Type_Ack:
+					if nil != err {
+						callback := sess.hand.getCall(pkg.I)
+						if nil != callback {
+							callback <- pkg.A
+						}
+					}
+				case Type_Error:
+					if nil != err {
+						err = errors.New(string(pkg.A))
+						sess.conn.Close()
 					}
 				}
 			}
@@ -199,28 +220,5 @@ loop2:
 	for _, didDisconnect := range sess.didDisconnects {
 		didDisconnect <- err
 	}
-	bi.onRequest(sessPtr, Disconnection, sess.protocol, nil)
-}
-
-func (sess *Session) sendMessage(m *Message) {
-	marshalledData, err := sess.protocol.Marshal(m)
-	if nil != err {
-		// log.Println(err)
-		return
-	}
-	sess.sendMarshalledData <- marshalledData
-}
-
-func (sess *Session) waitForDisconnection() chan error {
-	didDisconnect := make(chan error, 1)
-	sess.closedMut.Lock()
-	defer sess.closedMut.Unlock()
-	if true == sess.isClosed {
-		go func() {
-			didDisconnect <- sess.closedErr
-		}()
-	} else {
-		sess.didDisconnects = append(sess.didDisconnects, didDisconnect)
-	}
-	return didDisconnect
+	bi.onEvent(sessPtr, Disconnection, protocol, nil)
 }

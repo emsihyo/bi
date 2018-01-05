@@ -14,14 +14,15 @@ import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.stringer_all) =  true;
 
-message Message {
 enum Type {
-    Emit          = 0;
-    Request       = 1;
-    Response      = 2;
- }
-  Type        T = 1;
-  uint64      I = 2;
-  string      M = 3;
-  bytes       A = 4;
+  Event         = 0;
+  Ack           = 1;
+  Error         = 2;
+}
+
+message Package {
+  uint64 I = 1;
+  Type   T = 2;
+  string M = 3;
+  bytes  A = 4;
 }
