@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	callerHelp = "e.g. func (from interface{}), func (from interface{},req *Req), func (from interface{},req *Req) *Resp"
+	callerHelp = "e.g. func (sess interface{}), func (sess interface{},event *Event), func (sess interface{},event *Event) *ack"
 )
 
 //caller caller
