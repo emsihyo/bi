@@ -4,6 +4,7 @@ import "testing"
 import "unsafe"
 
 type SessionTest struct {
+	Content string
 }
 
 type EventTest struct {
@@ -15,10 +16,11 @@ type AckTest struct {
 }
 
 func Benchmark_Caller(b *testing.B) {
-	sess := &SessionTest{}
+	sess := &SessionTest{Content: "say "}
+	sessPtr := unsafe.Pointer(sess)
 	protocol := &JSONProtocol{}
 	caller := newCaller(func(sess *SessionTest, event *EventTest) *AckTest {
-		return &AckTest{Content: event.Content}
+		return &AckTest{Content: sess.Content + event.Content}
 	})
 	event := &EventTest{Content: "hello"}
 	eventBytes, err := protocol.Marshal(event)
@@ -27,7 +29,7 @@ func Benchmark_Caller(b *testing.B) {
 	}
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := caller.call(unsafe.Pointer(sess), protocol, eventBytes)
+		_, err := caller.call(sessPtr, protocol, eventBytes)
 		if nil != err {
 			b.Error(err)
 		}

@@ -57,7 +57,7 @@ func newCaller(v interface{}) *caller {
 func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, error) {
 	var vs []reflect.Value
 	var err error
-	sess := reflect.NewAt(c.tIn0, sessPtr).Elem().Interface()
+	sess := reflect.NewAt(c.tIn0.Elem(), sessPtr).Interface()
 	if nil == c.tIn1 {
 		vs = c.fun.Call([]reflect.Value{(reflect.ValueOf(sess))})
 	} else {
