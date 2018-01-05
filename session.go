@@ -91,7 +91,10 @@ func (sess *Session) Event(method string, event interface{}, ack interface{}) (e
 		hand.addCall(id, callback)
 		defer hand.removeCall(pkg.I)
 		sess.sendPackage(pkg)
+
 		select {
+		case <-time.After(sess.timeout):
+			return ErrTimeOut
 		case ackBytes := <-callback:
 			if err = protocol.Unmarshal(ackBytes, ack); nil != err {
 				return err
