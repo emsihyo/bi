@@ -12,8 +12,7 @@ type TCPConn struct {
 
 //NewTCPConn NewTCPConn
 func NewTCPConn(conn *net.TCPConn) *TCPConn {
-	c := TCPConn{conn: conn}
-	return &c
+	return &TCPConn{conn: conn}
 }
 
 //Close Close

@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-
-	uuid "github.com/satori/go.uuid"
 )
 
 var (
+	//ErrChanFull ErrChanFull
+	ErrChanFull = errors.New("bi.session chan is full")
 	//ErrTimeOut ErrTimeOut
 	ErrTimeOut = errors.New("bi.session timeout")
 	//ErrClosed ErrClosed
@@ -26,24 +26,22 @@ const (
 
 //Session Session
 type Session struct {
-	id                    string
-	conn                  Conn
-	protocol              Protocol
-	hand                  *handler
-	isClosed              bool
-	closedErr             error
-	closedMut             sync.Mutex
-	sendMarshalledPackage chan []byte
-	didReceivePackage     chan *Package
-	didReceiveError       chan error
-	didDisconnects        []chan error
-	timeout               time.Duration
-	timer                 *time.Timer
+	id                string
+	conn              Conn
+	protocol          Protocol
+	hand              *handler
+	err               error
+	mut               sync.Mutex
+	marshalledEvent   chan []byte
+	didReceivePackage chan *Package
+	didReceiveError   chan error
+	didDisconnects    []chan error
+	timeout           time.Duration
+	timer             *time.Timer
 }
 
-//NewSession NewSession
-func NewSession(conn Conn, protocol Protocol, timeout time.Duration) *Session {
-	return &Session{id: uuid.NewV3(uuid.NewV4(), conn.RemoteAddr()).String(), conn: conn, protocol: protocol, hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package, 64), didReceiveError: make(chan error, 1), sendMarshalledPackage: make(chan []byte, 512), timeout: timeout, timer: time.NewTimer(timeout)}
+func newSession() interface{} {
+	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package), didReceiveError: make(chan error, 1), marshalledEvent: make(chan []byte, 512)}
 }
 
 //GetID GetID
@@ -61,9 +59,16 @@ func (sess *Session) Close() {
 	sess.conn.Close()
 }
 
-//SendMarshalledPackage SendMarshalledPackage
-func (sess *Session) SendMarshalledPackage(marshalledData []byte) {
-	sess.sendMarshalledPackage <- marshalledData
+//MarshalledEvent MarshalledEvent
+func (sess *Session) MarshalledEvent(marshalledEvent []byte) {
+	select {
+	case sess.marshalledEvent <- marshalledEvent:
+	default:
+		select {
+		case sess.didReceiveError <- ErrChanFull:
+		default:
+		}
+	}
 }
 
 //Event Event
@@ -74,53 +79,56 @@ func (sess *Session) Event(method string, event interface{}, ack interface{}) (e
 		// log.Println(err)
 		return err
 	}
-	pkg := &Package{}
+	pkg := Pool.pkg.Get()
+	defer Pool.pkg.Put(pkg)
 	pkg.T = Type_Event
 	pkg.M = method
 	pkg.A = eventBytes
 	if nil == ack {
-		sess.sendPackage(pkg)
+		sess.sendEvent(pkg)
 		return err
 	}
-	waitForDisconnection := sess.waitForDisconnection()
-	if nil != waitForDisconnection {
+	waiting := sess.waiting()
+	if nil != waiting {
 		hand := sess.hand
-		id := hand.nextCallID()
-		pkg.I = id
+		pkg.I = hand.nextCallID()
 		callback := make(chan []byte, 1)
-		hand.addCall(id, callback)
-		defer hand.removeCall(pkg.I)
-		sess.sendPackage(pkg)
-
+		hand.addCall(pkg.I, callback)
+		timer := Pool.Timer.Get(sess.timeout)
+		sess.sendEvent(pkg)
+		defer func() {
+			hand.removeCall(pkg.I)
+			Pool.Timer.Put(timer)
+		}()
 		select {
-		case <-time.After(sess.timeout):
+		case <-timer.C:
 			return ErrTimeOut
 		case ackBytes := <-callback:
 			if err = protocol.Unmarshal(ackBytes, ack); nil != err {
 				return err
 			}
 			return nil
-		case err = <-waitForDisconnection:
+		case err = <-waiting:
 			return err
 		}
 	} else {
-		return sess.closedErr
+		return sess.err
 	}
 }
 
-func (sess *Session) sendPackage(pkg *Package) {
-	marshalledData, err := sess.protocol.Marshal(pkg)
+func (sess *Session) sendEvent(pkg *Package) {
+	marshalledEvent, err := sess.protocol.Marshal(pkg)
 	if nil != err {
 		// log.Println(err)
 		return
 	}
-	sess.sendMarshalledPackage <- marshalledData
+	sess.marshalledEvent <- marshalledEvent
 }
 
-func (sess *Session) waitForDisconnection() chan error {
-	sess.closedMut.Lock()
-	defer sess.closedMut.Unlock()
-	if true == sess.isClosed {
+func (sess *Session) waiting() chan error {
+	sess.mut.Lock()
+	defer sess.mut.Unlock()
+	if nil != sess.err {
 		return nil
 	}
 	didDisconnect := make(chan error, 1)
@@ -130,13 +138,13 @@ func (sess *Session) waitForDisconnection() chan error {
 
 func (sess *Session) sendLoop() {
 	go func() {
-		waitForDisconnection := sess.waitForDisconnection()
-		if nil != waitForDisconnection {
+		waiting := sess.waiting()
+		if nil != waiting {
 			for {
 				select {
-				case <-waitForDisconnection:
+				case <-waiting:
 					return
-				case packageBytes := <-sess.sendMarshalledPackage:
+				case packageBytes := <-sess.marshalledEvent:
 					sess.conn.Write(packageBytes)
 				}
 			}
@@ -157,12 +165,14 @@ func (sess *Session) receiveLoop() {
 				sess.didReceivePackage <- nil
 				continue
 			}
-			pkg := Package{}
-			if err = sess.protocol.Unmarshal(data, &pkg); nil != err {
+			pkg := Pool.pkg.Get()
+			if err = sess.protocol.Unmarshal(data, pkg); nil != err {
 				sess.didReceiveError <- err
+				Pool.pkg.Put(pkg)
 				break
 			} else {
-				sess.didReceivePackage <- &pkg
+				sess.didReceivePackage <- pkg
+				Pool.pkg.Put(pkg)
 			}
 		}
 	}()
@@ -190,11 +200,11 @@ loop2:
 					if nil == err {
 						pkg.T = Type_Ack
 						pkg.A = ackBytes
-						sess.sendPackage(pkg)
+						sess.sendEvent(pkg)
 					} else {
 						pkg.T = Type_Error
 						pkg.A = []byte(err.Error())
-						sess.sendPackage(pkg)
+						sess.sendEvent(pkg)
 						sess.conn.Close()
 					}
 				case Type_Ack:
@@ -215,11 +225,12 @@ loop2:
 			break loop2
 		}
 	}
-	sess.closedMut.Lock()
-	defer sess.closedMut.Unlock()
-	sess.closedErr = err
-	sess.isClosed = true
 	sess.conn.Close()
+	sess.mut.Lock()
+	defer sess.mut.Unlock()
+	if nil == sess.err {
+		sess.err = err
+	}
 	for _, didDisconnect := range sess.didDisconnects {
 		didDisconnect <- err
 	}

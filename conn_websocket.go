@@ -1,6 +1,8 @@
 package bi
 
-import "github.com/gorilla/websocket"
+import (
+	"github.com/gorilla/websocket"
+)
 
 const (
 	biWebsocketMessageType = -9527
@@ -9,12 +11,6 @@ const (
 //WebsocketConn WebsocketConn
 type WebsocketConn struct {
 	conn *websocket.Conn
-}
-
-//NewWebsocketConn NewWebsocketConn
-func NewWebsocketConn(conn *websocket.Conn) *WebsocketConn {
-	c := WebsocketConn{conn: conn}
-	return &c
 }
 
 //Close Close
