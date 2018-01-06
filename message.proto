@@ -17,7 +17,6 @@ option (gogoproto.stringer_all) =  true;
 enum Type {
   Event         = 0;
   Ack           = 1;
-  Error         = 2;
 }
 
 message Package {

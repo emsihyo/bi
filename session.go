@@ -201,11 +201,6 @@ loop2:
 						pkg.T = Type_Ack
 						pkg.A = ackBytes
 						sess.sendEvent(pkg)
-					} else {
-						pkg.T = Type_Error
-						pkg.A = []byte(err.Error())
-						sess.sendEvent(pkg)
-						sess.conn.Close()
 					}
 				case Type_Ack:
 					if nil != err {
@@ -213,11 +208,6 @@ loop2:
 						if nil != callback {
 							callback <- pkg.A
 						}
-					}
-				case Type_Error:
-					if nil != err {
-						err = errors.New(string(pkg.A))
-						sess.conn.Close()
 					}
 				}
 			}
