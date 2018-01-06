@@ -135,14 +135,16 @@ type poolTimer struct {
 }
 
 func newPoolTimer() *poolTimer {
-	return &poolTimer{Pool: sync.Pool{New: func() interface{} { return time.NewTimer(time.Second) }}}
+	return &poolTimer{Pool: sync.Pool{}}
 }
 
 //Get Get
 func (p *poolTimer) Get(timeout time.Duration) *time.Timer {
-	v := p.Pool.Get().(*time.Timer)
-	v.Reset(timeout)
-	return v
+	if v, _ := p.Pool.Get().(*time.Timer); v != nil {
+		v.Reset(timeout)
+		return v
+	}
+	return time.NewTimer(timeout)
 }
 
 //Put Put
