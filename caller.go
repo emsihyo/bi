@@ -3,6 +3,7 @@ package bi
 import (
 	"errors"
 	"reflect"
+	"sync"
 	"unsafe"
 )
 
@@ -16,6 +17,8 @@ type caller struct {
 	tIn0  reflect.Type
 	tIn1  reflect.Type
 	tOut0 reflect.Type
+	newIn func() interface{}
+	pool  sync.Pool
 }
 
 func newCaller(v interface{}) *caller {
@@ -51,6 +54,7 @@ func newCaller(v interface{}) *caller {
 	default:
 		panic(errors.New(callerHelp))
 	}
+	c.pool.New = func() interface{} { return reflect.New(c.tIn1.Elem()).Interface() }
 	return c
 }
 
@@ -61,12 +65,13 @@ func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, err
 	if nil == c.tIn1 {
 		vs = c.fun.Call([]reflect.Value{(reflect.ValueOf(sess))})
 	} else {
-		in1 := reflect.New(c.tIn1.Elem()).Interface()
+		in1 := c.pool.Get()
 		if err = p.Unmarshal(a, in1); nil != err {
 			// log.Println(err)
 			return nil, err
 		}
 		vs = c.fun.Call([]reflect.Value{reflect.ValueOf(sess), reflect.ValueOf(in1)})
+		c.pool.Put(in1)
 	}
 	if 0 < len(vs) {
 		var b []byte

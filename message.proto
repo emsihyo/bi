@@ -2,7 +2,6 @@ syntax = "proto3";
 package bi;
 option java_package = "com.emsihyo.bi";
 option java_outer_classname = "BI";
-option java_generic_services = true;  
 option java_generate_equals_and_hash = true;
 option objc_class_prefix = "BI";
 

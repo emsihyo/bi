@@ -26,7 +26,9 @@ func (bi *BI) On(m string, f interface{}) {
 }
 
 //Handle Handle
-func (bi *BI) Handle(sess *Session) {
+func (bi *BI) Handle(sess interface {
+	handle(bi *BI)
+}) {
 	sess.handle(bi)
 }
 

@@ -40,8 +40,9 @@ type Session struct {
 	timer             *time.Timer
 }
 
-func newSession() interface{} {
-	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package), didReceiveError: make(chan error, 1), marshalledEvent: make(chan []byte, 512)}
+//NewSession NewSession
+func NewSession(conn Conn, protocol Protocol, timeout time.Duration) *Session {
+	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package), didReceiveError: make(chan error, 1), marshalledEvent: make(chan []byte, 512), conn: conn, protocol: protocol, timeout: timeout}
 }
 
 //GetID GetID

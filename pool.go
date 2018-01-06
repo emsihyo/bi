@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	uuid "github.com/satori/go.uuid"
 )
 
 //Pool Pool
@@ -16,12 +15,11 @@ type pool struct {
 	TCPConn   *poolTCPConn
 	WebSocket *poolWebSocketConn
 	Timer     *poolTimer
-	Session   *poolSession
 	pkg       *poolPackage
 }
 
 func newPool() *pool {
-	return &pool{TCPConn: newPoolTCPConn(), WebSocket: newPoolWebSocketConn(), Timer: newPoolTimer(), Session: newPoolSession(), pkg: newPoolPackage()}
+	return &pool{TCPConn: newPoolTCPConn(), WebSocket: newPoolWebSocketConn(), Timer: newPoolTimer(), pkg: newPoolPackage()}
 }
 
 type poolTCPConn struct {
@@ -63,47 +61,6 @@ func (p *poolWebSocketConn) Get(conn *websocket.Conn) *WebsocketConn {
 //Put Put
 func (p *poolWebSocketConn) Put(v *WebsocketConn) {
 	v.conn = nil
-	p.Pool.Put(v)
-}
-
-type poolSession struct {
-	sync.Pool
-}
-
-func newPoolSession() *poolSession {
-	return &poolSession{Pool: sync.Pool{New: func() interface{} {
-		return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package), didReceiveError: make(chan error, 1), marshalledEvent: make(chan []byte, 512)}
-	}}}
-}
-
-//Get Get
-func (p *poolSession) Get(conn Conn, protocol Protocol, timeout time.Duration) *Session {
-	v := p.Pool.Get().(*Session)
-	v.id = uuid.NewV3(uuid.NewV4(), conn.RemoteAddr()).String()
-	v.conn = conn
-	v.protocol = protocol
-	v.timeout = timeout
-	return v
-}
-
-//Put Put
-func (p *poolSession) Put(v *Session) {
-	v.didDisconnects = []chan error{}
-	v.hand.reset()
-	select {
-	case <-v.timer.C:
-	default:
-	}
-loop:
-	for {
-		select {
-		case <-v.didReceiveError:
-		case <-v.didReceivePackage:
-		case <-v.marshalledEvent:
-		default:
-			break loop
-		}
-	}
 	p.Pool.Put(v)
 }
 
