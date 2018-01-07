@@ -19,9 +19,9 @@ var (
 //Session Session
 const (
 	//Connection Connection
-	Connection = "Connection"
+	Connection = "_CONNECTION"
 	//Disconnection Disconnection
-	Disconnection = "Disconnection"
+	Disconnection = "_DISCONNECTION"
 )
 
 //Session Session
