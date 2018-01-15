@@ -76,9 +76,14 @@ func (sess *Session) MarshalledEvent(marshalledEvent []byte) {
 func (sess *Session) Event(method string, event interface{}, ack interface{}) (err error) {
 	var eventBytes []byte
 	protocol := sess.protocol
-	if eventBytes, err = protocol.Marshal(event); nil != err {
-		// log.Println(err)
-		return err
+	switch data := event.(type) {
+	case *[]byte:
+		eventBytes = *data
+	default:
+		if eventBytes, err = protocol.Marshal(data); nil != err {
+			// log.Println(err)
+			return err
+		}
 	}
 	pkg := Pool.pkg.Get()
 	defer Pool.pkg.Put(pkg)
@@ -105,8 +110,13 @@ func (sess *Session) Event(method string, event interface{}, ack interface{}) (e
 		case <-timer.C:
 			return ErrTimeOut
 		case ackBytes := <-callback:
-			if err = protocol.Unmarshal(ackBytes, ack); nil != err {
-				return err
+			switch data := ack.(type) {
+			case *[]byte:
+				*data = append(*data, ackBytes...)
+			default:
+				if err = protocol.Unmarshal(ackBytes, ack); nil != err {
+					return err
+				}
 			}
 			return nil
 		case err = <-waiting:
