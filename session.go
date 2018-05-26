@@ -26,28 +26,22 @@ const (
 
 //Session Session
 type Session struct {
-	id                string
-	conn              Conn
-	protocol          Protocol
-	hand              *handler
-	err               error
-	mut               sync.Mutex
-	marshalledEvent   chan []byte
-	didReceivePackage chan *Package
-	didReceiveError   chan error
-	didDisconnects    []chan error
-	timeout           time.Duration
-	timer             *time.Timer
+	conn                   Conn
+	protocol               Protocol
+	hand                   *handler
+	err                    error
+	mut                    sync.Mutex
+	didReceivePayloadBytes chan []byte
+	willSendPayloadBytes   chan []byte
+	didMakeError           chan error
+	didDisconnects         []chan error
+	timeout                time.Duration
+	timer                  *time.Timer
 }
 
 //NewSession NewSession
 func NewSession(conn Conn, protocol Protocol, timeout time.Duration) *Session {
-	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePackage: make(chan *Package), didReceiveError: make(chan error, 1), marshalledEvent: make(chan []byte, 512), conn: conn, protocol: protocol, timeout: timeout}
-}
-
-//GetID GetID
-func (sess *Session) GetID() string {
-	return sess.id
+	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePayloadBytes: make(chan []byte), didMakeError: make(chan error, 1), willSendPayloadBytes: make(chan []byte, 256), conn: conn, protocol: protocol, timeout: timeout}
 }
 
 //GetProtocol GetProtocol
@@ -60,104 +54,104 @@ func (sess *Session) Close() {
 	sess.conn.Close()
 }
 
-//MarshalledEvent MarshalledEvent
-func (sess *Session) MarshalledEvent(marshalledEvent []byte) {
+//SendPayloadBytes Should confirm that the protocols match.
+func (sess *Session) SendPayloadBytes(payloadBytes []byte) {
 	select {
-	case sess.marshalledEvent <- marshalledEvent:
+	case sess.willSendPayloadBytes <- payloadBytes:
 	default:
 		select {
-		case sess.didReceiveError <- ErrChanFull:
+		case sess.didMakeError <- ErrChanFull:
 		default:
 		}
 	}
 }
 
-//Event Event
-func (sess *Session) Event(method string, event interface{}, ack interface{}) (err error) {
-	var eventBytes []byte
+//Send Send
+func (sess *Session) Send(method string, argument interface{}, ack interface{}) error {
+	var argumentBytes []byte
+	var err error
 	protocol := sess.protocol
-	switch data := event.(type) {
+	switch data := argument.(type) {
 	case *[]byte:
-		eventBytes = *data
+		argumentBytes = *data
 	default:
-		if eventBytes, err = protocol.Marshal(data); nil != err {
-			// log.Println(err)
+		if argumentBytes, err = protocol.Marshal(data); nil != err {
 			return err
 		}
 	}
-	pkg := Pool.pkg.Get()
-	defer Pool.pkg.Put(pkg)
-	pkg.T = Type_Event
-	pkg.M = method
-	pkg.A = eventBytes
+	payload := Pool.Payload.Get()
+	defer Pool.Payload.Put(payload)
+	payload.T = Type_Event
+	payload.M = method
+	payload.A = argumentBytes
 	if nil == ack {
-		sess.sendEvent(pkg)
+		return sess.sendPayload(payload)
+	}
+	var waiting chan error
+	if waiting, err = sess.waiting(); nil != err {
 		return err
 	}
-	waiting := sess.waiting()
-	if nil != waiting {
-		hand := sess.hand
-		pkg.I = hand.nextCallID()
-		callback := make(chan []byte, 1)
-		hand.addCall(pkg.I, callback)
-		timer := Pool.Timer.Get(sess.timeout)
-		sess.sendEvent(pkg)
-		defer func() {
-			hand.removeCall(pkg.I)
-			Pool.Timer.Put(timer)
-		}()
-		select {
-		case <-timer.C:
-			return ErrTimeOut
-		case ackBytes := <-callback:
-			switch data := ack.(type) {
-			case *[]byte:
-				*data = append(*data, ackBytes...)
-			default:
-				if err = protocol.Unmarshal(ackBytes, ack); nil != err {
-					return err
-				}
-			}
-			return nil
-		case err = <-waiting:
-			return err
+	hand := sess.hand
+	payload.I = hand.nextCallID()
+	callback := make(chan []byte, 1)
+	hand.addCall(payload.I, callback)
+	timer := Pool.Timer.Get(sess.timeout)
+	defer hand.removeCall(payload.I)
+	defer Pool.Timer.Put(timer)
+	if err = sess.sendPayload(payload); nil != err {
+		return err
+	}
+	select {
+	case err = <-waiting:
+	case <-timer.C:
+		err = ErrTimeOut
+	case ackBytes := <-callback:
+		switch data := ack.(type) {
+		case *[]byte:
+			*data = append(*data, ackBytes...)
+		default:
+			err = protocol.Unmarshal(ackBytes, ack)
 		}
-	} else {
-		return sess.err
 	}
+	return err
 }
 
-func (sess *Session) sendEvent(pkg *Package) {
-	marshalledEvent, err := sess.protocol.Marshal(pkg)
+func (sess *Session) sendPayload(payload *Payload) error {
+	payloadBytes, err := sess.protocol.Marshal(payload)
 	if nil != err {
-		// log.Println(err)
-		return
+		return err
 	}
-	sess.marshalledEvent <- marshalledEvent
+	sess.SendPayloadBytes(payloadBytes)
+	return nil
 }
 
-func (sess *Session) waiting() chan error {
+func (sess *Session) waiting() (chan error, error) {
 	sess.mut.Lock()
 	defer sess.mut.Unlock()
 	if nil != sess.err {
-		return nil
+		return nil, sess.err
 	}
 	didDisconnect := make(chan error, 1)
 	sess.didDisconnects = append(sess.didDisconnects, didDisconnect)
-	return didDisconnect
+	return didDisconnect, nil
 }
 
 func (sess *Session) sendLoop() {
 	go func() {
-		waiting := sess.waiting()
-		if nil != waiting {
-			for {
-				select {
-				case <-waiting:
-					return
-				case packageBytes := <-sess.marshalledEvent:
-					sess.conn.Write(packageBytes)
-				}
+		waiting, err := sess.waiting()
+		if nil != err {
+			return
+		}
+		for {
+			select {
+			case <-waiting:
+				return
+			case packageBytes := <-sess.willSendPayloadBytes:
+				err = sess.conn.Write(packageBytes)
+			}
+			if nil != err {
+				sess.conn.Close()
+				return
 			}
 		}
 	}()
@@ -169,22 +163,10 @@ func (sess *Session) receiveLoop() {
 		var data []byte
 		for {
 			if data, err = sess.conn.Read(); nil != err {
-				sess.didReceiveError <- err
+				sess.didMakeError <- err
 				break
 			}
-			if nil == data {
-				sess.didReceivePackage <- nil
-				continue
-			}
-			pkg := Pool.pkg.Get()
-			if err = sess.protocol.Unmarshal(data, pkg); nil != err {
-				sess.didReceiveError <- err
-				Pool.pkg.Put(pkg)
-				break
-			} else {
-				sess.didReceivePackage <- pkg
-				Pool.pkg.Put(pkg)
-			}
+			sess.didReceivePayloadBytes <- data
 		}
 	}()
 }
@@ -201,32 +183,35 @@ loop2:
 		select {
 		case <-sess.timer.C:
 			err = ErrTimeOut
-			sess.conn.Close()
-		case pkg := <-sess.didReceivePackage:
-			if nil != err && nil != pkg {
-				switch pkg.T {
-				case Type_Event:
-					ackBytes := []byte{}
-					ackBytes, err = bi.onEvent(sessPtr, pkg.M, protocol, pkg.A)
-					if nil == err {
-						pkg.T = Type_Ack
-						pkg.A = ackBytes
-						sess.sendEvent(pkg)
-					}
-				case Type_Ack:
-					if nil != err {
-						callback := sess.hand.getCall(pkg.I)
+		case payloadBtyes := <-sess.didReceivePayloadBytes:
+			if nil != payloadBtyes {
+				payload := Pool.Payload.Get()
+				defer Pool.Payload.Put(payload)
+				if err = sess.protocol.Unmarshal(payloadBtyes, payload); nil == err {
+					switch payload.T {
+					case Type_Event:
+						ackBytes := []byte{}
+						ackBytes, err = bi.onEvent(sessPtr, payload.M, protocol, payload.A)
+						if nil == err {
+							payload.T = Type_Ack
+							payload.A = ackBytes
+							err = sess.sendPayload(payload)
+						}
+					case Type_Ack:
+						callback := sess.hand.getCall(payload.I)
 						if nil != callback {
-							callback <- pkg.A
+							callback <- payload.A
 						}
 					}
 				}
 			}
-		case err = <-sess.didReceiveError:
+		case err = <-sess.didMakeError:
+		}
+		if nil != err {
+			sess.conn.Close()
 			break loop2
 		}
 	}
-	sess.conn.Close()
 	sess.mut.Lock()
 	defer sess.mut.Unlock()
 	if nil == sess.err {

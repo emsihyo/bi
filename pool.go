@@ -15,11 +15,11 @@ type pool struct {
 	TCPConn   *poolTCPConn
 	WebSocket *poolWebSocketConn
 	Timer     *poolTimer
-	pkg       *poolPackage
+	Payload   *poolPayload
 }
 
 func newPool() *pool {
-	return &pool{TCPConn: newPoolTCPConn(), WebSocket: newPoolWebSocketConn(), Timer: newPoolTimer(), pkg: newPoolPackage()}
+	return &pool{TCPConn: newPoolTCPConn(), WebSocket: newPoolWebSocketConn(), Timer: newPoolTimer(), Payload: newPoolPayload()}
 }
 
 type poolTCPConn struct {
@@ -64,22 +64,22 @@ func (p *poolWebSocketConn) Put(v *WebsocketConn) {
 	p.Pool.Put(v)
 }
 
-type poolPackage struct {
+type poolPayload struct {
 	sync.Pool
 }
 
-func newPoolPackage() *poolPackage {
-	return &poolPackage{Pool: sync.Pool{New: func() interface{} { return &Package{} }}}
+func newPoolPayload() *poolPayload {
+	return &poolPayload{Pool: sync.Pool{New: func() interface{} { return &Payload{} }}}
 }
 
 //Get Get
-func (p *poolPackage) Get() *Package {
-	v := p.Pool.Get().(*Package)
+func (p *poolPayload) Get() *Payload {
+	v := p.Pool.Get().(*Payload)
 	return v
 }
 
 //Put Put
-func (p *poolPackage) Put(v *Package) {
+func (p *poolPayload) Put(v *Payload) {
 	v.I = 0
 	v.M = ""
 	v.A = []byte{}

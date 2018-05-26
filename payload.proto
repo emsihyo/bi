@@ -14,11 +14,11 @@ option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.stringer_all) =  true;
 
 enum Type {
-  Event         = 0;
-  Ack           = 1;
+  Event = 0;
+  Ack   = 1;
 }
 
-message Package {
+message Payload {
   uint64 I = 1;
   Type   T = 2;
   string M = 3;

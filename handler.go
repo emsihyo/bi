@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 )
 
-//Handler Handler
+//handler handler
 type handler struct {
 	id    uint64
 	calls map[uint64]chan []byte

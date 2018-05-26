@@ -61,7 +61,6 @@ func (conn *TCPConn) read2(data []byte) error {
 
 //Write Write
 func (conn *TCPConn) Write(data []byte) error {
-	var err error
 	head := make([]byte, 4)
 	if nil != data && 0 <= len(data) {
 		binary.BigEndian.PutUint32(head, uint32(len(data)))
@@ -69,8 +68,7 @@ func (conn *TCPConn) Write(data []byte) error {
 	} else {
 		binary.BigEndian.PutUint32(head, 0)
 	}
-	err = conn.write(head)
-	return err
+	return conn.write(head)
 }
 
 func (conn *TCPConn) write(data []byte) error {
