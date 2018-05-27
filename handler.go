@@ -16,14 +16,12 @@ func newHandler() *handler {
 	return &handler{calls: map[uint64]chan []byte{}}
 }
 
-func (hand *handler) nextCallID() uint64 {
-	return atomic.AddUint64(&hand.id, 1)
-}
-
-func (hand *handler) addCall(id uint64, callback chan []byte) {
+func (hand *handler) addCall(callback chan []byte) uint64 {
+	id := atomic.AddUint64(&hand.id, 1)
 	hand.mut.Lock()
 	hand.calls[id] = callback
 	hand.mut.Unlock()
+	return id
 }
 
 func (hand *handler) removeCall(id uint64) {

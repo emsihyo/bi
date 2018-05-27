@@ -92,9 +92,8 @@ func (sess *Session) Send(method string, argument interface{}, ack interface{}) 
 		return err
 	}
 	hand := sess.hand
-	payload.I = hand.nextCallID()
 	callback := make(chan []byte, 1)
-	hand.addCall(payload.I, callback)
+	payload.I = hand.addCall(callback)
 	timer := Pool.Timer.Get(sess.timeout)
 	defer hand.removeCall(payload.I)
 	defer Pool.Timer.Put(timer)
@@ -192,7 +191,7 @@ loop2:
 					case Type_Event:
 						ackBytes := []byte{}
 						ackBytes, err = bi.onEvent(sessPtr, payload.M, protocol, payload.A)
-						if nil == err {
+						if nil == err && len(ackBytes) > 0 {
 							payload.T = Type_Ack
 							payload.A = ackBytes
 							err = sess.sendPayload(payload)
