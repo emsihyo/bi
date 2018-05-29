@@ -55,15 +55,14 @@ func (sess *Session) Close() {
 }
 
 //SendPayloadBytes Should confirm that the protocols match.
-func (sess *Session) SendPayloadBytes(payloadBytes []byte) {
+func (sess *Session) SendPayloadBytes(payloadBytes []byte) error {
 	select {
 	case sess.willSendPayloadBytes <- payloadBytes:
 	default:
-		select {
-		case sess.didMakeError <- ErrChanFull:
-		default:
-		}
+		sess.didMakeError <- ErrChanFull
+		return ErrChanFull
 	}
+	return nil
 }
 
 //Send Send
@@ -120,8 +119,7 @@ func (sess *Session) sendPayload(payload *Payload) error {
 	if nil != err {
 		return err
 	}
-	sess.SendPayloadBytes(payloadBytes)
-	return nil
+	return sess.SendPayloadBytes(payloadBytes)
 }
 
 func (sess *Session) waiting() (chan error, error) {
