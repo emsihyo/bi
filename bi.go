@@ -11,29 +11,33 @@ var (
 )
 
 //BI BI
-type BI struct {
+type BI interface {
+	OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, err error)
+}
+
+//Impl Impl
+type Impl struct {
 	callers map[string]*caller
 }
 
-//NewBI NewBI
-func NewBI() *BI {
-	return &BI{callers: map[string]*caller{}}
+//NewImpl NewImpl
+func NewImpl() *Impl {
+	return &Impl{callers: map[string]*caller{}}
 }
 
 //On On
-func (bi *BI) On(m string, f interface{}) {
-	bi.callers[m] = newCaller(f)
+func (impl *Impl) On(m string, f interface{}) {
+	impl.callers[m] = newCaller(f)
 }
 
 //Handle Handle
-func (bi *BI) Handle(sess interface {
-	handle(bi *BI)
-}) {
-	sess.handle(bi)
+func (impl *Impl) Handle(sess Session) {
+	sess.handle(impl)
 }
 
-func (bi *BI) onEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, err error) {
-	caller, ok := bi.callers[method]
+//OnEvent OnEvent
+func (impl *Impl) OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, err error) {
+	caller, ok := impl.callers[method]
 	if ok {
 		return caller.call(sessPtr, protocol, eventBytes)
 	}

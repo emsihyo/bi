@@ -13,6 +13,11 @@ type WebsocketConn struct {
 	conn *websocket.Conn
 }
 
+//NewWebsocketConn NewWebsocketConn
+func NewWebsocketConn(conn *websocket.Conn) *WebsocketConn {
+	return &WebsocketConn{conn: conn}
+}
+
 //Close Close
 func (conn *WebsocketConn) Close() {
 	conn.conn.Close()

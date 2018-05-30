@@ -7,6 +7,12 @@ import (
 	"unsafe"
 )
 
+//Session Session
+type Session interface {
+	Close()
+	handle(bi BI)
+}
+
 var (
 	//ErrChanFull ErrChanFull
 	ErrChanFull = errors.New("bi.session chan is full")
@@ -16,7 +22,7 @@ var (
 	ErrClosed = errors.New("bi.session closed")
 )
 
-//Session Session
+//SessionImpl SessionImpl
 const (
 	//Connection Connection
 	Connection = "_CONNECTION"
@@ -24,13 +30,13 @@ const (
 	Disconnection = "_DISCONNECTION"
 )
 
-//Session Session
-type Session struct {
+//SessionImpl SessionImpl
+type SessionImpl struct {
 	conn                   Conn
 	protocol               Protocol
 	hand                   *handler
 	err                    error
-	mut                    sync.Mutex
+	mut                    *sync.Mutex
 	didReceivePayloadBytes chan []byte
 	willSendPayloadBytes   chan []byte
 	didMakeError           chan error
@@ -39,23 +45,23 @@ type Session struct {
 	timer                  *time.Timer
 }
 
-//NewSession NewSession
-func NewSession(conn Conn, protocol Protocol, timeout time.Duration) *Session {
-	return &Session{hand: newHandler(), didDisconnects: []chan error{}, didReceivePayloadBytes: make(chan []byte), didMakeError: make(chan error, 1), willSendPayloadBytes: make(chan []byte, 256), conn: conn, protocol: protocol, timeout: timeout}
+//NewSessionImpl NewSessionImpl
+func NewSessionImpl(conn Conn, protocol Protocol, timeout time.Duration) *SessionImpl {
+	return &SessionImpl{mut: &sync.Mutex{}, hand: newHandler(), didDisconnects: []chan error{}, didReceivePayloadBytes: make(chan []byte), didMakeError: make(chan error, 1), willSendPayloadBytes: make(chan []byte, 256), conn: conn, protocol: protocol, timeout: timeout}
 }
 
 //GetProtocol GetProtocol
-func (sess *Session) GetProtocol() Protocol {
+func (sess *SessionImpl) GetProtocol() Protocol {
 	return sess.protocol
 }
 
 //Close Close
-func (sess *Session) Close() {
+func (sess *SessionImpl) Close() {
 	sess.conn.Close()
 }
 
 //SendPayloadBytes Should confirm that the protocols match.
-func (sess *Session) SendPayloadBytes(payloadBytes []byte) error {
+func (sess *SessionImpl) SendPayloadBytes(payloadBytes []byte) error {
 	select {
 	case sess.willSendPayloadBytes <- payloadBytes:
 	default:
@@ -66,7 +72,7 @@ func (sess *Session) SendPayloadBytes(payloadBytes []byte) error {
 }
 
 //Send Send
-func (sess *Session) Send(method string, argument interface{}, ack interface{}) error {
+func (sess *SessionImpl) Send(method string, argument interface{}, ack interface{}) error {
 	var argumentBytes []byte
 	var err error
 	protocol := sess.protocol
@@ -114,7 +120,7 @@ func (sess *Session) Send(method string, argument interface{}, ack interface{}) 
 	return err
 }
 
-func (sess *Session) sendPayload(payload *Payload) error {
+func (sess *SessionImpl) sendPayload(payload *Payload) error {
 	payloadBytes, err := sess.protocol.Marshal(payload)
 	if nil != err {
 		return err
@@ -122,7 +128,7 @@ func (sess *Session) sendPayload(payload *Payload) error {
 	return sess.SendPayloadBytes(payloadBytes)
 }
 
-func (sess *Session) waiting() (chan error, error) {
+func (sess *SessionImpl) waiting() (chan error, error) {
 	sess.mut.Lock()
 	defer sess.mut.Unlock()
 	if nil != sess.err {
@@ -133,7 +139,7 @@ func (sess *Session) waiting() (chan error, error) {
 	return didDisconnect, nil
 }
 
-func (sess *Session) sendLoop() {
+func (sess *SessionImpl) sendLoop() {
 	go func() {
 		waiting, err := sess.waiting()
 		if nil != err {
@@ -154,7 +160,7 @@ func (sess *Session) sendLoop() {
 	}()
 }
 
-func (sess *Session) receiveLoop() {
+func (sess *SessionImpl) receiveLoop() {
 	go func() {
 		var err error
 		var data []byte
@@ -167,13 +173,15 @@ func (sess *Session) receiveLoop() {
 		}
 	}()
 }
-func (sess *Session) handle(bi *BI) {
+
+//Handle Handle
+func (sess *SessionImpl) handle(bi BI) {
 	sess.sendLoop()
 	sess.receiveLoop()
 	var err error
 	sessPtr := unsafe.Pointer(sess)
 	protocol := sess.protocol
-	bi.onEvent(sessPtr, Connection, protocol, nil)
+	bi.OnEvent(sessPtr, Connection, protocol, nil)
 loop2:
 	for {
 		sess.timer.Reset(sess.timeout)
@@ -188,7 +196,7 @@ loop2:
 					switch payload.T {
 					case Type_Event:
 						ackBytes := []byte{}
-						ackBytes, err = bi.onEvent(sessPtr, payload.M, protocol, payload.A)
+						ackBytes, err = bi.OnEvent(sessPtr, payload.M, protocol, payload.A)
 						if nil == err && len(ackBytes) > 0 {
 							payload.T = Type_Ack
 							payload.A = ackBytes
@@ -217,5 +225,5 @@ loop2:
 	for _, didDisconnect := range sess.didDisconnects {
 		didDisconnect <- err
 	}
-	bi.onEvent(sessPtr, Disconnection, protocol, nil)
+	bi.OnEvent(sessPtr, Disconnection, protocol, nil)
 }
