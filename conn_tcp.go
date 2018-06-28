@@ -2,17 +2,19 @@ package bi
 
 import (
 	"encoding/binary"
+	"errors"
 	"net"
 )
 
 //TCPConn TCPConn
 type TCPConn struct {
-	conn *net.TCPConn
+	conn            *net.TCPConn
+	maximumBodySize uint32
 }
 
 //NewTCPConn NewTCPConn
-func NewTCPConn(conn *net.TCPConn) *TCPConn {
-	return &TCPConn{conn: conn}
+func NewTCPConn(conn *net.TCPConn, maximumBodySize uint32) *TCPConn {
+	return &TCPConn{conn: conn, maximumBodySize: maximumBodySize}
 }
 
 //Close Close
@@ -34,6 +36,9 @@ func (conn *TCPConn) Read() ([]byte, error) {
 	bodySize := binary.BigEndian.Uint32(head)
 	if 0 == bodySize {
 		return nil, nil
+	}
+	if conn.maximumBodySize < bodySize {
+		return nil, errors.New("too large body")
 	}
 	data := make([]byte, bodySize)
 	if err := conn.read2(data); nil != err {
