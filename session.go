@@ -14,12 +14,27 @@ type Session interface {
 }
 
 var (
+	//ErrTooLargePayload ErrTooLargePayload
+	ErrTooLargePayload = errors.New("bi.session pay load is too large")
 	//ErrChanFull ErrChanFull
 	ErrChanFull = errors.New("bi.session chan is full")
 	//ErrTimeOut ErrTimeOut
 	ErrTimeOut = errors.New("bi.session timeout")
 	//ErrClosed ErrClosed
 	ErrClosed = errors.New("bi.session closed")
+)
+
+//Weight Weight
+type Weight int
+
+const (
+
+	//Normal Normal
+	Normal Weight = iota
+	//Lazy Lazy
+	Lazy
+	//Urgent Urgent
+	Urgent
 )
 
 //SessionImpl SessionImpl
@@ -32,22 +47,20 @@ const (
 
 //SessionImpl SessionImpl
 type SessionImpl struct {
-	conn                   Conn
-	protocol               Protocol
-	hand                   *handler
-	err                    error
-	mut                    *sync.Mutex
-	didReceivePayloadBytes chan []byte
-	willSendPayloadBytes   chan []byte
-	didMakeError           chan error
-	didDisconnects         []chan error
-	timeout                time.Duration
-	timer                  *time.Timer
+	conn                 Conn
+	protocol             Protocol
+	hand                 *handler
+	err                  error
+	mut                  *sync.Mutex
+	willSendPayloadBytes [Urgent + 1]chan []byte
+	errorOccurred        chan error
+	didDisconnects       []chan error
+	timeout              time.Duration
 }
 
 //NewSessionImpl NewSessionImpl
 func NewSessionImpl(conn Conn, protocol Protocol, timeout time.Duration) *SessionImpl {
-	return &SessionImpl{mut: &sync.Mutex{}, hand: newHandler(), didDisconnects: []chan error{}, didReceivePayloadBytes: make(chan []byte), didMakeError: make(chan error, 1), willSendPayloadBytes: make(chan []byte, 256), conn: conn, protocol: protocol, timeout: timeout}
+	return &SessionImpl{mut: &sync.Mutex{}, hand: newHandler(), didDisconnects: []chan error{}, errorOccurred: make(chan error, 1), willSendPayloadBytes: [Urgent + 1]chan []byte{make(chan []byte, 128), make(chan []byte, 256), make(chan []byte, 512)}, conn: conn, protocol: protocol, timeout: timeout}
 }
 
 //GetProtocol GetProtocol
@@ -61,18 +74,18 @@ func (sess *SessionImpl) Close() {
 }
 
 //SendPayloadBytes Should confirm that the protocols match.
-func (sess *SessionImpl) SendPayloadBytes(payloadBytes []byte) error {
+func (sess *SessionImpl) SendPayloadBytes(payloadBytes []byte, weight Weight) error {
 	select {
-	case sess.willSendPayloadBytes <- payloadBytes:
+	case sess.willSendPayloadBytes[weight] <- payloadBytes:
 	default:
-		sess.didMakeError <- ErrChanFull
+		sess.errorOccurred <- ErrChanFull
 		return ErrChanFull
 	}
 	return nil
 }
 
 //Send Send
-func (sess *SessionImpl) Send(method string, argument interface{}, ack interface{}) error {
+func (sess *SessionImpl) Send(method string, argument interface{}, ack interface{}, weight Weight) error {
 	var argumentBytes []byte
 	var err error
 	protocol := sess.protocol
@@ -90,7 +103,7 @@ func (sess *SessionImpl) Send(method string, argument interface{}, ack interface
 	payload.M = method
 	payload.A = argumentBytes
 	if nil == ack {
-		return sess.sendPayload(payload)
+		return sess.sendPayload(payload, weight)
 	}
 	var waiting chan error
 	if waiting, err = sess.waiting(); nil != err {
@@ -102,7 +115,7 @@ func (sess *SessionImpl) Send(method string, argument interface{}, ack interface
 	timer := Pool.Timer.Get(sess.timeout)
 	defer hand.removeCall(payload.I)
 	defer Pool.Timer.Put(timer)
-	if err = sess.sendPayload(payload); nil != err {
+	if err = sess.sendPayload(payload, weight); nil != err {
 		return err
 	}
 	select {
@@ -120,12 +133,12 @@ func (sess *SessionImpl) Send(method string, argument interface{}, ack interface
 	return err
 }
 
-func (sess *SessionImpl) sendPayload(payload *Payload) error {
+func (sess *SessionImpl) sendPayload(payload *Payload, weight Weight) error {
 	payloadBytes, err := sess.protocol.Marshal(payload)
 	if nil != err {
 		return err
 	}
-	return sess.SendPayloadBytes(payloadBytes)
+	return sess.SendPayloadBytes(payloadBytes, weight)
 }
 
 func (sess *SessionImpl) waiting() (chan error, error) {
@@ -139,82 +152,117 @@ func (sess *SessionImpl) waiting() (chan error, error) {
 	return didDisconnect, nil
 }
 
-func (sess *SessionImpl) sendLoop() {
-	go func() {
-		waiting, err := sess.waiting()
-		if nil != err {
-			return
-		}
-		for {
-			select {
-			case <-waiting:
-				return
-			case packageBytes := <-sess.willSendPayloadBytes:
-				err = sess.conn.Write(packageBytes)
-			}
-			if nil != err {
-				sess.conn.Close()
-				return
-			}
-		}
-	}()
-}
-
-func (sess *SessionImpl) receiveLoop() {
-	go func() {
-		var err error
-		var data []byte
-		for {
-			if data, err = sess.conn.Read(); nil != err {
-				sess.didMakeError <- err
-				break
-			}
-			sess.didReceivePayloadBytes <- data
-		}
-	}()
-}
-
 //Handle Handle
 func (sess *SessionImpl) handle(bi BI) {
-	sess.sendLoop()
-	sess.receiveLoop()
+	payloadBytesReceived := make(chan []byte)
+	//send payload bytes loop
+	go func() {
+		var err error
+		for {
+			var packageBytes []byte
+			var ok bool
+			select {
+			case packageBytes, ok = <-sess.willSendPayloadBytes[Urgent]:
+				if !ok {
+					return
+				}
+				err = sess.conn.Write(packageBytes)
+				if nil != err {
+					sess.errorOccurred <- err
+					return
+				}
+				continue
+			default:
+			}
+			select {
+			case packageBytes, ok = <-sess.willSendPayloadBytes[Normal]:
+				if !ok {
+					return
+				}
+				err = sess.conn.Write(packageBytes)
+				if nil != err {
+					sess.errorOccurred <- err
+					return
+				}
+				continue
+			default:
+			}
+			select {
+			case packageBytes, ok = <-sess.willSendPayloadBytes[Lazy]:
+				if !ok {
+					return
+				}
+				err = sess.conn.Write(packageBytes)
+				if nil != err {
+					sess.errorOccurred <- err
+					return
+				}
+			default:
+			}
+		}
+	}()
+	//receive payloadBytes loop
+	go func() {
+		var err error
+		var payloadBytes []byte
+		for {
+			if payloadBytes, err = sess.conn.Read(); nil != err {
+				sess.errorOccurred <- err
+				continue
+			}
+			payloadBytesReceived <- payloadBytes
+		}
+	}()
 	var err error
+	var payloadBtyes []byte
+	var ackBytes []byte
+	timer := Pool.Timer.Get(sess.timeout)
+	defer Pool.Timer.Put(timer)
 	sessPtr := unsafe.Pointer(sess)
 	protocol := sess.protocol
 	bi.OnEvent(sessPtr, Connection, protocol, nil)
-loop2:
 	for {
-		sess.timer.Reset(sess.timeout)
+		timer.Reset(sess.timeout)
 		select {
-		case <-sess.timer.C:
+		case <-timer.C:
 			err = ErrTimeOut
-		case payloadBtyes := <-sess.didReceivePayloadBytes:
-			if nil != payloadBtyes {
-				payload := Pool.Payload.Get()
-				defer Pool.Payload.Put(payload)
-				if err = sess.protocol.Unmarshal(payloadBtyes, payload); nil == err {
-					switch payload.T {
-					case Type_Event:
-						ackBytes := []byte{}
-						ackBytes, err = bi.OnEvent(sessPtr, payload.M, protocol, payload.A)
-						if nil == err && len(ackBytes) > 0 {
-							payload.T = Type_Ack
-							payload.A = ackBytes
-							err = sess.sendPayload(payload)
-						}
-					case Type_Ack:
-						callback := sess.hand.getCall(payload.I)
-						if nil != callback {
-							callback <- payload.A
-						}
-					}
+		case payloadBtyes = <-payloadBytesReceived:
+			if nil == payloadBtyes {
+				break
+			}
+			payload := Pool.Payload.Get()
+			defer Pool.Payload.Put(payload)
+			if err = sess.protocol.Unmarshal(payloadBtyes, payload); nil != err {
+				break
+			}
+			switch payload.T {
+			case Type_Event:
+				ackBytes, err = bi.OnEvent(sessPtr, payload.M, protocol, payload.A)
+				if nil != err {
+					break
+				}
+				if nil == ackBytes {
+					break
+				}
+				payload.T = Type_Ack
+				payload.A = ackBytes
+				err = sess.sendPayload(payload, Normal)
+			case Type_Ack:
+				callback := sess.hand.getCall(payload.I)
+				if nil != callback {
+					callback <- payload.A
 				}
 			}
-		case err = <-sess.didMakeError:
+		case err = <-sess.errorOccurred:
 		}
 		if nil != err {
 			sess.conn.Close()
-			break loop2
+			close(payloadBytesReceived)
+			close(sess.willSendPayloadBytes[Normal])
+			close(sess.willSendPayloadBytes[Lazy])
+			close(sess.willSendPayloadBytes[Urgent])
+			close(sess.errorOccurred)
+			break
 		}
 	}
 	sess.mut.Lock()

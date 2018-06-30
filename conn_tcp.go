@@ -2,7 +2,6 @@ package bi
 
 import (
 	"encoding/binary"
-	"errors"
 	"net"
 )
 
@@ -38,7 +37,7 @@ func (conn *TCPConn) Read() ([]byte, error) {
 		return nil, nil
 	}
 	if conn.maximumBodySize < bodySize {
-		return nil, errors.New("too large body")
+		return nil, ErrTooLargePayload
 	}
 	data := make([]byte, bodySize)
 	if err := conn.read2(data); nil != err {
@@ -82,7 +81,6 @@ func (conn *TCPConn) write(data []byte) error {
 	for 0 < len(data) {
 		didWriteBytes, err = conn.conn.Write(data)
 		if nil != err {
-			// log.Println(err)
 			break
 		}
 		data = data[didWriteBytes:]
