@@ -3,26 +3,26 @@ package bi
 import "testing"
 import "unsafe"
 
-type SessionTest struct {
+type sessionTest struct {
 	Content string
 }
 
-type EventTest struct {
+type eventTest struct {
 	Content string `json:"I,omitempty"`
 }
 
-type AckTest struct {
+type ackTest struct {
 	Content string `json:"I,omitempty"`
 }
 
 func Benchmark_Caller(b *testing.B) {
-	sess := &SessionTest{Content: "say "}
+	sess := &sessionTest{Content: "say "}
 	sessPtr := unsafe.Pointer(sess)
 	protocol := &JSONProtocol{}
-	caller := newCaller(func(sess *SessionTest, event *EventTest) (*AckTest, Weight) {
-		return &AckTest{Content: sess.Content + event.Content}, Urgent
+	caller := newCaller(func(sess *sessionTest, event *eventTest) (*ackTest, Weight) {
+		return &ackTest{Content: sess.Content + event.Content}, Urgent
 	})
-	event := &EventTest{Content: "hello"}
+	event := &eventTest{Content: "hello"}
 	eventBytes, err := protocol.Marshal(event)
 	if nil != err {
 		b.Error(err)

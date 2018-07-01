@@ -6,38 +6,38 @@ import (
 	"time"
 )
 
-type PingTest struct {
+type pingTest struct {
 	At int64 `json:"at,omitempty"`
 }
 
-type PongTest struct {
+type pongTest struct {
 	At int64 `json:"at,omitempty"`
 }
 
-type TestConn struct {
+type connTest struct {
 	t int
 	p Protocol
 }
 
-func NewTestConn() *TestConn {
-	return &TestConn{t: 0, p: &JSONProtocol{}}
+func newConnTest() *connTest {
+	return &connTest{t: 0, p: &JSONProtocol{}}
 }
 
-func (conn *TestConn) Close() {
+func (conn *connTest) Close() {
 
 }
 
-func (conn *TestConn) Write(b []byte) error {
+func (conn *connTest) Write(b []byte) error {
 	return nil
 }
 
-func (conn *TestConn) Read() ([]byte, error) {
+func (conn *connTest) Read() ([]byte, error) {
 	<-time.After(time.Millisecond * 100)
 	conn.t++
 	if conn.t > 10 {
 		return nil, net.ErrWriteToConnected
 	}
-	ping := &PingTest{At: time.Now().UnixNano()}
+	ping := &pingTest{At: time.Now().UnixNano()}
 	pingBytes, _ := conn.p.Marshal(ping)
 	payload := &Payload{I: uint64(conn.t), T: Type_Event, M: "ping", A: pingBytes}
 	payloadBytes, _ := conn.p.Marshal(payload)
@@ -45,15 +45,16 @@ func (conn *TestConn) Read() ([]byte, error) {
 
 }
 
-func (conn *TestConn) RemoteAddr() string {
+func (conn *connTest) RemoteAddr() string {
 	return "addr"
 }
+
 func Test_Session(t *testing.T) {
 	b := NewImpl()
-	b.On("ping", func(sess *SessionImpl, ping *PingTest) (*PongTest, Weight) {
+	b.On("ping", func(sess *SessionImpl, ping *pingTest) (*pongTest, Weight) {
 		t.Log("event:", *ping)
-		return &PongTest{At: time.Now().UnixNano()}, Lazy
+		return &pongTest{At: time.Now().UnixNano()}, Lazy
 	})
-	sess := NewSessionImpl(NewTestConn(), &JSONProtocol{}, time.Second*30)
+	sess := NewSessionImpl(newConnTest(), &JSONProtocol{}, time.Second*30)
 	b.Handle(sess)
 }
