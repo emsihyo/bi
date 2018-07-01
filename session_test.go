@@ -51,6 +51,12 @@ func (conn *connTest) RemoteAddr() string {
 
 func Test_Session(t *testing.T) {
 	b := NewImpl()
+	b.On(Connection, func(sess *SessionImpl) {
+		t.Log("connection")
+	})
+	b.On(Disconnection, func(sess *SessionImpl) {
+		t.Log("disconnection")
+	})
 	b.On("ping", func(sess *SessionImpl, ping *pingTest) (*pongTest, Weight) {
 		t.Log("event:", *ping)
 		return &pongTest{At: time.Now().UnixNano()}, Lazy
