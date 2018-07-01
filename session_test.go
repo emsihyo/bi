@@ -1,7 +1,6 @@
 package bi
 
 import (
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -33,12 +32,12 @@ func (conn *TestConn) Write(b []byte) error {
 }
 
 func (conn *TestConn) Read() ([]byte, error) {
-	<-time.After(time.Second * 1)
+	<-time.After(time.Millisecond * 100)
 	conn.t++
-	if conn.t > 2 {
+	if conn.t > 10 {
 		return nil, net.ErrWriteToConnected
 	}
-	ping := &PingTest{At: time.Now().Unix()}
+	ping := &PingTest{At: time.Now().UnixNano()}
 	pingBytes, _ := conn.p.Marshal(ping)
 	payload := &Payload{I: uint64(conn.t), T: Type_Event, M: "ping", A: pingBytes}
 	payloadBytes, _ := conn.p.Marshal(payload)
@@ -52,15 +51,9 @@ func (conn *TestConn) RemoteAddr() string {
 func Test_Session(t *testing.T) {
 	b := NewImpl()
 	b.On("ping", func(sess *SessionImpl, ping *PingTest) (*PongTest, Weight) {
-		fmt.Println("event:", *ping)
-		return &PongTest{At: time.Now().Unix()}, Lazy
+		t.Log("event:", *ping)
+		return &PongTest{At: time.Now().UnixNano()}, Lazy
 	})
-	for i := 0; i < 1; i++ {
-		go func() {
-			sess := NewSessionImpl(NewTestConn(), &JSONProtocol{}, time.Second*30)
-			b.Handle(sess)
-		}()
-	}
 	sess := NewSessionImpl(NewTestConn(), &JSONProtocol{}, time.Second*30)
 	b.Handle(sess)
 }

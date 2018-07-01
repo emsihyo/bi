@@ -35,6 +35,7 @@ func (hand *handler) getCall(id uint64) chan []byte {
 	defer hand.mut.RUnlock()
 	return hand.calls[id]
 }
+
 func (hand *handler) reset() {
 	hand.mut.Lock()
 	hand.calls = map[uint64]chan []byte{}
