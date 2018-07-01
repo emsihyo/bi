@@ -8,7 +8,10 @@ import (
 
 //Session Session
 type Session interface {
-	Close()
+	Conn() Conn
+	Protocol() Protocol
+	SendPayloadBytes(payloadBytes []byte, weight Weight) error
+	Send(method string, argument interface{}, ack interface{}, weight Weight) error
 	handle(bi BI)
 }
 
@@ -50,14 +53,14 @@ func NewSessionImpl(conn Conn, protocol Protocol, timeout time.Duration) *Sessio
 	return &SessionImpl{mut: &sync.Mutex{}, hand: newHandler(), didDisconnects: []chan error{}, errorOccurred: make(chan error, 1), willSendPayloadBytes: [Urgent + 1]chan []byte{make(chan []byte, 128), make(chan []byte, 256), make(chan []byte, 512)}, conn: conn, protocol: protocol, timeout: timeout}
 }
 
-//GetProtocol GetProtocol
-func (sess *SessionImpl) GetProtocol() Protocol {
+//Protocol Protocol
+func (sess *SessionImpl) Protocol() Protocol {
 	return sess.protocol
 }
 
-//Close Close
-func (sess *SessionImpl) Close() {
-	sess.conn.Close()
+//Conn Conn
+func (sess *SessionImpl) Conn() Conn {
+	return sess.conn
 }
 
 //SendPayloadBytes SendPayloadBytes must confirm that the protocols match before calling
