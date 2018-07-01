@@ -1,6 +1,7 @@
 package bi
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func (conn *TestConn) Write(b []byte) error {
 }
 
 func (conn *TestConn) Read() ([]byte, error) {
-	<-time.After(time.Second * 2)
+	<-time.After(time.Second * 1)
 	conn.t++
 	if conn.t > 2 {
 		return nil, net.ErrWriteToConnected
@@ -51,6 +52,7 @@ func (conn *TestConn) RemoteAddr() string {
 func Test_Session(t *testing.T) {
 	b := NewImpl()
 	b.On("ping", func(sess *SessionImpl, ping *PingTest) (*PongTest, Weight) {
+		fmt.Println("event:", *ping)
 		return &PongTest{At: time.Now().Unix()}, Lazy
 	})
 	for i := 0; i < 1; i++ {

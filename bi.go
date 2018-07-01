@@ -7,15 +7,19 @@ import (
 
 var (
 	//ErrUnsupportedMethod ErrUnsupportedMethod
-	ErrUnsupportedMethod = errors.New("bi unsupport method")
+	ErrUnsupportedMethod = errors.New("bi. unsupport method")
 	//ErrTooLargePayload ErrTooLargePayload
-	ErrTooLargePayload = errors.New("bi.session pay load is too large")
+	ErrTooLargePayload = errors.New("bi. session payload is too large")
 	//ErrChanFull ErrChanFull
-	ErrChanFull = errors.New("bi.session chan is full")
+	ErrChanFull = errors.New("bi. session chan is full")
 	//ErrTimeOut ErrTimeOut
-	ErrTimeOut = errors.New("bi.session timeout")
+	ErrTimeOut = errors.New("bi. session timeout")
 	//ErrClosed ErrClosed
-	ErrClosed = errors.New("bi.session closed")
+	ErrClosed = errors.New("bi. session closed")
+	//ErrMarshal ErrMarshal
+	ErrMarshal = errors.New("bi. marshal error")
+	//ErrUnmarshal ErrUnmarshal
+	ErrUnmarshal = errors.New("bi. unmarshal error")
 )
 
 //BI BI
