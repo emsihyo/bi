@@ -1,7 +1,6 @@
 package bi
 
 import (
-	"errors"
 	"sync"
 	"time"
 	"unsafe"
@@ -13,22 +12,10 @@ type Session interface {
 	handle(bi BI)
 }
 
-var (
-	//ErrTooLargePayload ErrTooLargePayload
-	ErrTooLargePayload = errors.New("bi.session pay load is too large")
-	//ErrChanFull ErrChanFull
-	ErrChanFull = errors.New("bi.session chan is full")
-	//ErrTimeOut ErrTimeOut
-	ErrTimeOut = errors.New("bi.session timeout")
-	//ErrClosed ErrClosed
-	ErrClosed = errors.New("bi.session closed")
-)
-
 //Weight Weight
 type Weight int
 
 const (
-
 	//Normal Normal
 	Normal Weight = iota
 	//Lazy Lazy
@@ -73,18 +60,25 @@ func (sess *SessionImpl) Close() {
 	sess.conn.Close()
 }
 
-//SendPayloadBytes Should confirm that the protocols match.
+//SendPayloadBytes SendPayloadBytes must confirm that the protocols match before calling
 func (sess *SessionImpl) SendPayloadBytes(payloadBytes []byte, weight Weight) error {
 	select {
 	case sess.willSendPayloadBytes[weight] <- payloadBytes:
 	default:
-		sess.errorOccurred <- ErrChanFull
+		select {
+		case sess.errorOccurred <- ErrChanFull:
+		default:
+		}
 		return ErrChanFull
 	}
 	return nil
 }
 
-//Send Send
+/*
+Send Send
+method method name
+argument argument,marshalled argument data or struct ptr
+*/
 func (sess *SessionImpl) Send(method string, argument interface{}, ack interface{}, weight Weight) error {
 	var argumentBytes []byte
 	var err error
@@ -152,24 +146,27 @@ func (sess *SessionImpl) waiting() (chan error, error) {
 	return didDisconnect, nil
 }
 
-//Handle Handle
 func (sess *SessionImpl) handle(bi BI) {
 	payloadBytesReceived := make(chan []byte)
 	//send payload bytes loop
 	go func() {
 		var err error
+	SEND:
 		for {
 			var packageBytes []byte
 			var ok bool
 			select {
 			case packageBytes, ok = <-sess.willSendPayloadBytes[Urgent]:
 				if !ok {
-					return
+					break SEND
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					sess.errorOccurred <- err
-					return
+					select {
+					case sess.errorOccurred <- err:
+					default:
+					}
+					break SEND
 				}
 				continue
 			default:
@@ -177,12 +174,15 @@ func (sess *SessionImpl) handle(bi BI) {
 			select {
 			case packageBytes, ok = <-sess.willSendPayloadBytes[Normal]:
 				if !ok {
-					return
+					break SEND
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					sess.errorOccurred <- err
-					return
+					select {
+					case sess.errorOccurred <- err:
+					default:
+					}
+					break SEND
 				}
 				continue
 			default:
@@ -190,12 +190,15 @@ func (sess *SessionImpl) handle(bi BI) {
 			select {
 			case packageBytes, ok = <-sess.willSendPayloadBytes[Lazy]:
 				if !ok {
-					return
+					break SEND
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					sess.errorOccurred <- err
-					return
+					select {
+					case sess.errorOccurred <- err:
+					default:
+					}
+					break SEND
 				}
 			default:
 			}
@@ -205,17 +208,26 @@ func (sess *SessionImpl) handle(bi BI) {
 	go func() {
 		var err error
 		var payloadBytes []byte
+	RECEIVE:
 		for {
 			if payloadBytes, err = sess.conn.Read(); nil != err {
-				sess.errorOccurred <- err
-				continue
+				select {
+				case sess.errorOccurred <- err:
+				default:
+				}
+				break RECEIVE
 			}
-			payloadBytesReceived <- payloadBytes
+			select {
+			case payloadBytesReceived <- payloadBytes:
+			default:
+				break RECEIVE
+			}
 		}
 	}()
 	var err error
 	var payloadBtyes []byte
 	var ackBytes []byte
+	weight := Normal
 	timer := Pool.Timer.Get(sess.timeout)
 	defer Pool.Timer.Put(timer)
 	sessPtr := unsafe.Pointer(sess)
@@ -237,7 +249,7 @@ func (sess *SessionImpl) handle(bi BI) {
 			}
 			switch payload.T {
 			case Type_Event:
-				ackBytes, err = bi.OnEvent(sessPtr, payload.M, protocol, payload.A)
+				ackBytes, weight, err = bi.OnEvent(sessPtr, payload.M, protocol, payload.A)
 				if nil != err {
 					break
 				}
@@ -246,7 +258,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				}
 				payload.T = Type_Ack
 				payload.A = ackBytes
-				err = sess.sendPayload(payload, Normal)
+				err = sess.sendPayload(payload, weight)
 			case Type_Ack:
 				callback := sess.hand.getCall(payload.I)
 				if nil != callback {

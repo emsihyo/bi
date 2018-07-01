@@ -8,7 +8,15 @@ import (
 )
 
 const (
-	callerHelp = "e.g. func (sess interface{}), func (sess interface{},event *Event), func (sess interface{},event *Event) *ack"
+	callerHelp = `
+	e.g.
+	func (*sess)
+	func (*sess, *event)
+	func (*sess, *event) *ack
+	func (*sess) *ack
+	func (*sess) *ack, Weight
+	func (*sess, *event) *ack, Weight
+	`
 )
 
 //caller caller
@@ -17,6 +25,7 @@ type caller struct {
 	tIn0  reflect.Type
 	tIn1  reflect.Type
 	tOut0 reflect.Type
+	tOut1 reflect.Type
 	newIn func() interface{}
 	pool  sync.Pool
 }
@@ -50,6 +59,15 @@ func newCaller(v interface{}) *caller {
 		if c.tOut0.Kind() != reflect.Ptr {
 			panic(errors.New(callerHelp))
 		}
+	case 2:
+		c.tOut0 = vt.Out(0)
+		if c.tOut0.Kind() != reflect.Ptr {
+			panic(errors.New(callerHelp))
+		}
+		c.tOut1 = vt.Out(1)
+		if c.tOut1.Kind() != reflect.Int {
+			panic(errors.New(callerHelp))
+		}
 	case 0:
 	default:
 		panic(errors.New(callerHelp))
@@ -58,7 +76,7 @@ func newCaller(v interface{}) *caller {
 	return c
 }
 
-func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, error) {
+func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, Weight, error) {
 	var vs []reflect.Value
 	var err error
 	sessValue := reflect.NewAt(c.tIn0.Elem(), sessPtr)
@@ -67,17 +85,26 @@ func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, err
 	} else {
 		in1 := c.pool.Get()
 		if err = p.Unmarshal(a, in1); nil != err {
-			return nil, err
+			return nil, Normal, err
 		}
 		vs = c.fun.Call([]reflect.Value{sessValue, reflect.ValueOf(in1)})
 		c.pool.Put(in1)
 	}
-	if 0 == len(vs) {
-		return nil, nil
+	switch len(vs) {
+
+	case 1:
+		var b []byte
+		if b, err = p.Marshal(vs[0].Interface()); nil != err {
+			return nil, Normal, err
+		}
+		return b, Normal, nil
+	case 2:
+		var b []byte
+		if b, err = p.Marshal(vs[0].Interface()); nil != err {
+			return nil, Normal, err
+		}
+		return b, Weight(vs[1].Int()), nil
+	default:
+		return nil, Normal, nil
 	}
-	var b []byte
-	if b, err = p.Marshal(vs[0].Interface()); nil != err {
-		return nil, err
-	}
-	return b, nil
 }

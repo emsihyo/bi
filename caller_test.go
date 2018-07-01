@@ -19,8 +19,8 @@ func Benchmark_Caller(b *testing.B) {
 	sess := &SessionTest{Content: "say "}
 	sessPtr := unsafe.Pointer(sess)
 	protocol := &JSONProtocol{}
-	caller := newCaller(func(sess *SessionTest, event *EventTest) *AckTest {
-		return &AckTest{Content: sess.Content + event.Content}
+	caller := newCaller(func(sess *SessionTest, event *EventTest) (*AckTest, Weight) {
+		return &AckTest{Content: sess.Content + event.Content}, Urgent
 	})
 	event := &EventTest{Content: "hello"}
 	eventBytes, err := protocol.Marshal(event)
@@ -29,7 +29,7 @@ func Benchmark_Caller(b *testing.B) {
 	}
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := caller.call(sessPtr, protocol, eventBytes)
+		_, _, err := caller.call(sessPtr, protocol, eventBytes)
 		if nil != err {
 			b.Error(err)
 		}
