@@ -1,17 +1,15 @@
 
 language: go
-osx_image: xcode9
-
-env:
-  global:
+  go:
+  - 1.x
+  - '1.8'
+  - '1.9'
+  - 1.10.x
 
 notifications:
   email: false
 
 before_install:
-    - go version
-    - go env
     - go get
 script:
-    - set -o pipefail
     - go test -v 
