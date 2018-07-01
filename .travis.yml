@@ -11,7 +11,7 @@ notifications:
 before_install:
     - go version
     - go env
-    - go install
+    - go get
 script:
     - set -o pipefail
     - go test -v 
