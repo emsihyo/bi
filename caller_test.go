@@ -19,8 +19,8 @@ func Benchmark_Caller(b *testing.B) {
 	sess := &sessionTest{Content: "say "}
 	sessPtr := unsafe.Pointer(sess)
 	protocol := &JSONProtocol{}
-	caller := newCaller(func(sess *sessionTest, event *eventTest) (*ackTest, Weight) {
-		return &ackTest{Content: sess.Content + event.Content}, Urgent
+	caller := newCaller(func(sess *sessionTest, event *eventTest) (*ackTest, Priority) {
+		return &ackTest{Content: sess.Content + event.Content}, High
 	})
 	event := &eventTest{Content: "hello"}
 	eventBytes, err := protocol.Marshal(event)

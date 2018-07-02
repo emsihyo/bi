@@ -6,16 +6,8 @@ import (
 )
 
 //Pool Pool
-var Pool = newPool()
-
-type pool struct {
-	Timer   *poolTimer
-	Payload *poolPayload
-}
-
-func newPool() *pool {
-	return &pool{Timer: newPoolTimer(), Payload: newPoolPayload()}
-}
+var timerPool = newPoolTimer()
+var payloadPool = newPoolPayload()
 
 type poolPayload struct {
 	sync.Pool

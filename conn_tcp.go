@@ -29,7 +29,7 @@ func (conn *TCPConn) RemoteAddr() string {
 //Read Read
 func (conn *TCPConn) Read() ([]byte, error) {
 	head := make([]byte, 4)
-	if err := conn.read2(head); nil != err {
+	if err := conn.read(head); nil != err {
 		return nil, err
 	}
 	bodySize := binary.BigEndian.Uint32(head)
@@ -40,13 +40,25 @@ func (conn *TCPConn) Read() ([]byte, error) {
 		return nil, ErrTooLargePayload
 	}
 	data := make([]byte, bodySize)
-	if err := conn.read2(data); nil != err {
+	if err := conn.read(data); nil != err {
 		return nil, err
 	}
 	return data, nil
 }
 
-func (conn *TCPConn) read2(data []byte) error {
+//Write Write
+func (conn *TCPConn) Write(data []byte) error {
+	head := make([]byte, 4)
+	if nil != data && 0 <= len(data) {
+		binary.BigEndian.PutUint32(head, uint32(len(data)))
+		head = append(head, data...)
+	} else {
+		binary.BigEndian.PutUint32(head, 0)
+	}
+	return conn.write(head)
+}
+
+func (conn *TCPConn) read(data []byte) error {
 	didReadBytesTotal := 0
 	didReadBytes := 0
 	var err error
@@ -61,18 +73,6 @@ func (conn *TCPConn) read2(data []byte) error {
 		didReadBytesTotal += didReadBytes
 	}
 	return err
-}
-
-//Write Write
-func (conn *TCPConn) Write(data []byte) error {
-	head := make([]byte, 4)
-	if nil != data && 0 <= len(data) {
-		binary.BigEndian.PutUint32(head, uint32(len(data)))
-		head = append(head, data...)
-	} else {
-		binary.BigEndian.PutUint32(head, 0)
-	}
-	return conn.write(head)
 }
 
 func (conn *TCPConn) write(data []byte) error {

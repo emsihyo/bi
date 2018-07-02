@@ -15,12 +15,12 @@ type pongTest struct {
 }
 
 type connTest struct {
-	t int
-	p Protocol
+	i        int
+	protocol Protocol
 }
 
 func newConnTest() *connTest {
-	return &connTest{t: 0, p: &JSONProtocol{}}
+	return &connTest{i: 0, protocol: &JSONProtocol{}}
 }
 
 func (conn *connTest) Close() {
@@ -33,14 +33,14 @@ func (conn *connTest) Write(b []byte) error {
 
 func (conn *connTest) Read() ([]byte, error) {
 	<-time.After(time.Millisecond * 100)
-	conn.t++
-	if conn.t > 10 {
+	conn.i++
+	if conn.i > 10 {
 		return nil, net.ErrWriteToConnected
 	}
 	ping := &pingTest{At: time.Now().UnixNano()}
-	pingBytes, _ := conn.p.Marshal(ping)
-	payload := &Payload{I: uint64(conn.t), T: Type_Event, M: "ping", A: pingBytes}
-	payloadBytes, _ := conn.p.Marshal(payload)
+	pingBytes, _ := conn.protocol.Marshal(ping)
+	payload := &Payload{I: uint32(conn.i), T: Type_Event, M: "ping", A: pingBytes}
+	payloadBytes, _ := conn.protocol.Marshal(payload)
 	return payloadBytes, nil
 
 }
@@ -57,9 +57,9 @@ func Test_Session(t *testing.T) {
 	b.On(Disconnection, func(sess *SessionImpl) {
 		t.Log("disconnection")
 	})
-	b.On("ping", func(sess *SessionImpl, ping *pingTest) (*pongTest, Weight) {
+	b.On("ping", func(sess *SessionImpl, ping *pingTest) (*pongTest, Priority) {
 		t.Log("event:", *ping)
-		return &pongTest{At: time.Now().UnixNano()}, Lazy
+		return &pongTest{At: time.Now().UnixNano()}, Low
 	})
 	sess := NewSessionImpl(newConnTest(), &JSONProtocol{}, time.Second*30)
 	b.Handle(sess)

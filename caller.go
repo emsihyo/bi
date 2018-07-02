@@ -14,8 +14,8 @@ const (
 	func (*sess, *event)
 	func (*sess, *event) *ack
 	func (*sess) *ack
-	func (*sess) *ack, Weight
-	func (*sess, *event) *ack, Weight
+	func (*sess) *ack, Priority
+	func (*sess, *event) *ack, Priority
 	`
 )
 
@@ -54,18 +54,15 @@ func newCaller(v interface{}) *caller {
 		panic(errors.New(callerHelp))
 	}
 	switch vt.NumOut() {
+	case 2:
+		c.tOut1 = vt.Out(1)
+		if c.tOut1.Kind() != reflect.Int {
+			panic(errors.New(callerHelp))
+		}
+		fallthrough
 	case 1:
 		c.tOut0 = vt.Out(0)
 		if c.tOut0.Kind() != reflect.Ptr {
-			panic(errors.New(callerHelp))
-		}
-	case 2:
-		c.tOut0 = vt.Out(0)
-		if c.tOut0.Kind() != reflect.Ptr {
-			panic(errors.New(callerHelp))
-		}
-		c.tOut1 = vt.Out(1)
-		if c.tOut1.Kind() != reflect.Int {
 			panic(errors.New(callerHelp))
 		}
 	case 0:
@@ -76,7 +73,7 @@ func newCaller(v interface{}) *caller {
 	return c
 }
 
-func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, Weight, error) {
+func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, Priority, error) {
 	var vs []reflect.Value
 	var err error
 	sessValue := reflect.NewAt(c.tIn0.Elem(), sessPtr)
@@ -91,7 +88,6 @@ func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, Wei
 		c.pool.Put(in1)
 	}
 	switch len(vs) {
-
 	case 1:
 		var b []byte
 		if b, err = p.Marshal(vs[0].Interface()); nil != err {
@@ -103,7 +99,7 @@ func (c *caller) call(sessPtr unsafe.Pointer, p Protocol, a []byte) ([]byte, Wei
 		if b, err = p.Marshal(vs[0].Interface()); nil != err {
 			return nil, Normal, err
 		}
-		return b, Weight(vs[1].Int()), nil
+		return b, Priority(vs[1].Int()), nil
 	default:
 		return nil, Normal, nil
 	}

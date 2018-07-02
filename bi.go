@@ -5,6 +5,9 @@ import (
 	"unsafe"
 )
 
+//Priority Priority
+type Priority int
+
 var (
 	//ErrUnsupportedMethod ErrUnsupportedMethod
 	ErrUnsupportedMethod = errors.New("bi. unsupport method")
@@ -24,7 +27,7 @@ var (
 
 //BI BI
 type BI interface {
-	OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, weight Weight, err error)
+	OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, priority Priority, err error)
 }
 
 //Impl Impl
@@ -48,7 +51,7 @@ func (impl *Impl) Handle(sess Session) {
 }
 
 //OnEvent OnEvent
-func (impl *Impl) OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, weight Weight, err error) {
+func (impl *Impl) OnEvent(sessPtr unsafe.Pointer, method string, protocol Protocol, eventBytes []byte) (ackBytes []byte, priority Priority, err error) {
 	caller, ok := impl.callers[method]
 	if ok {
 		return caller.call(sessPtr, protocol, eventBytes)
