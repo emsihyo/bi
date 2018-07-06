@@ -166,7 +166,6 @@ func (sess *SessionImpl) removeWaiting(waiting chan error) {
 func (sess *SessionImpl) handle(bi BI) {
 	//send payload bytes loop
 	go func() {
-		var err error
 	SEND:
 		for {
 			var packageBytes []byte
@@ -176,11 +175,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				if !ok {
 					break SEND
 				}
-				err = sess.conn.Write(packageBytes)
-				if nil != err {
-					sess.errorOccurred <- err
-					break SEND
-				}
+				sess.conn.Write(packageBytes)
 				continue
 			default:
 			}
@@ -189,11 +184,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				if !ok {
 					break SEND
 				}
-				err = sess.conn.Write(packageBytes)
-				if nil != err {
-					sess.errorOccurred <- err
-					break SEND
-				}
+				sess.conn.Write(packageBytes)
 				continue
 			default:
 			}
@@ -202,11 +193,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				if !ok {
 					break SEND
 				}
-				err = sess.conn.Write(packageBytes)
-				if nil != err {
-					sess.errorOccurred <- err
-					break SEND
-				}
+				sess.conn.Write(packageBytes)
 			default:
 			}
 		}
