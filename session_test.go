@@ -32,9 +32,9 @@ func (conn *connTest) Write(b []byte) error {
 }
 
 func (conn *connTest) Read() ([]byte, error) {
-	<-time.After(time.Millisecond * 100)
+	<-time.After(time.Millisecond)
 	conn.i++
-	if conn.i > 10 {
+	if conn.i > 10000 {
 		return nil, net.ErrWriteToConnected
 	}
 	ping := &pingTest{At: time.Now().UnixNano()}
@@ -58,7 +58,7 @@ func Test_Session(t *testing.T) {
 		t.Log("disconnection")
 	})
 	b.On("ping", func(sess *SessionImpl, ping *pingTest) (*pongTest, Priority) {
-		t.Log("event:", *ping)
+		// t.Log("event:", *ping)
 		return &pongTest{At: time.Now().UnixNano()}, Low
 	})
 	sess := NewSessionImpl(newConnTest(), &JSONProtocol{}, time.Second*30)

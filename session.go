@@ -47,7 +47,7 @@ type SessionImpl struct {
 
 //NewSessionImpl NewSessionImpl
 func NewSessionImpl(conn Conn, protocol Protocol, timeout time.Duration) *SessionImpl {
-	return &SessionImpl{hand: newHandler(), didDisconnects: []chan error{}, errorOccurred: make(chan error, 1), willSendPayloadBytes: [High + 1]chan []byte{make(chan []byte, 128), make(chan []byte, 256), make(chan []byte, 512)}, conn: conn, protocol: protocol, timeout: timeout}
+	return &SessionImpl{hand: newHandler(), didDisconnects: []chan error{}, errorOccurred: make(chan error), willSendPayloadBytes: [High + 1]chan []byte{make(chan []byte, 128), make(chan []byte, 256), make(chan []byte, 512)}, conn: conn, protocol: protocol, timeout: timeout}
 }
 
 //Protocol Protocol
@@ -178,10 +178,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					select {
-					case sess.errorOccurred <- err:
-					default:
-					}
+					sess.errorOccurred <- err
 					break SEND
 				}
 				continue
@@ -194,10 +191,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					select {
-					case sess.errorOccurred <- err:
-					default:
-					}
+					sess.errorOccurred <- err
 					break SEND
 				}
 				continue
@@ -210,10 +204,7 @@ func (sess *SessionImpl) handle(bi BI) {
 				}
 				err = sess.conn.Write(packageBytes)
 				if nil != err {
-					select {
-					case sess.errorOccurred <- err:
-					default:
-					}
+					sess.errorOccurred <- err
 					break SEND
 				}
 			default:
@@ -228,17 +219,10 @@ func (sess *SessionImpl) handle(bi BI) {
 	RECEIVE:
 		for {
 			if payloadBytes, err = sess.conn.Read(); nil != err {
-				select {
-				case sess.errorOccurred <- err:
-				default:
-				}
+				sess.errorOccurred <- err
 				break RECEIVE
 			}
-			select {
-			case payloadBytesReceived <- payloadBytes:
-			default:
-				break RECEIVE
-			}
+			payloadBytesReceived <- payloadBytes
 		}
 	}()
 	var err error
@@ -285,15 +269,29 @@ func (sess *SessionImpl) handle(bi BI) {
 		case err = <-sess.errorOccurred:
 		}
 		if nil != err {
-			sess.conn.Close()
-			close(payloadBytesReceived)
-			close(sess.willSendPayloadBytes[Normal])
-			close(sess.willSendPayloadBytes[Low])
-			close(sess.willSendPayloadBytes[High])
-			close(sess.errorOccurred)
 			break
 		}
 	}
+	sess.conn.Close()
+FOR1:
+	for {
+		select {
+		case <-payloadBytesReceived:
+		default:
+			break FOR1
+		}
+	}
+FOR2:
+	for {
+		select {
+		case <-sess.errorOccurred:
+		default:
+			break FOR2
+		}
+	}
+	close(sess.willSendPayloadBytes[Normal])
+	close(sess.willSendPayloadBytes[Low])
+	close(sess.willSendPayloadBytes[High])
 	sess.mut.Lock()
 	defer sess.mut.Unlock()
 	if nil == sess.err {
