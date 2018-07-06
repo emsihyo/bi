@@ -75,8 +75,8 @@ func (sess *SessionImpl) SendPayloadBytes(payloadBytes []byte, priority Priority
 }
 
 /*
-Send Send
-method method name
+Send     Send
+method   method name
 argument argument,marshalled argument data or struct ptr
 */
 func (sess *SessionImpl) Send(method string, argument interface{}, ack interface{}, priority Priority) error {

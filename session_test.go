@@ -32,9 +32,9 @@ func (conn *connTest) Write(b []byte) error {
 }
 
 func (conn *connTest) Read() ([]byte, error) {
-	<-time.After(time.Millisecond)
+	// <-time.After(time.Microsecond)
 	conn.i++
-	if conn.i > 10000 {
+	if conn.i > 1000 {
 		return nil, net.ErrWriteToConnected
 	}
 	ping := &pingTest{At: time.Now().UnixNano()}
@@ -42,7 +42,6 @@ func (conn *connTest) Read() ([]byte, error) {
 	payload := &Payload{I: uint32(conn.i), T: Type_Event, M: "ping", A: pingBytes}
 	payloadBytes, _ := conn.protocol.Marshal(payload)
 	return payloadBytes, nil
-
 }
 
 func (conn *connTest) RemoteAddr() string {
