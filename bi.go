@@ -40,14 +40,14 @@ func NewImpl() *Impl {
 	return &Impl{callers: map[string]*caller{}}
 }
 
-//On On
-func (impl *Impl) On(m string, f interface{}) {
-	impl.callers[m] = newCaller(f)
-}
-
 //Handle Handle
 func (impl *Impl) Handle(sess Session) {
 	sess.handle(impl)
+}
+
+//On On
+func (impl *Impl) On(m string, f interface{}) {
+	impl.callers[m] = newCaller(f)
 }
 
 //OnEvent OnEvent
